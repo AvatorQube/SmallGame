@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Cyber Data Hockey - 通信品質体感デモ</title>
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    font-family: 'Segoe UI', Roboto, 'Hiragino Kaku Gothic ProN', sans-serif;
+  }
+  body {
+    background-color: #050814;
+    color: #e2e8f0;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* メインコンテナ（上部：プレイ70% + ステータス30%） */
+  .main-container {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  /* ① プレイ領域 (70%) */
+  .play-area {
+    flex: 7;
+    position: relative;
+    background: radial-gradient(circle at center, #0d1630 0%, #050814 100%);
+    border-right: 2px solid #1e293b;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  canvas {
+    background-color: rgba(10, 18, 44, 0.8);
+    border: 2px solid #00f0ff;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.25);
+    border-radius: 12px;
+    touch-action: none;
+  }
+  .score-overlay {
+    position: absolute;
+    top: 20px;
+    left: 30px;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: #fff;
+    text-shadow: 0 0 10px #00f0ff;
+    pointer-events: none;
+  }
+  .lag-warning {
+    position: absolute;
+    top: 20px;
+    right: 30px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 18px;
+    display: none;
+    pointer-events: none;
+  }
+
+  /* ② 通信ステータス領域 (30%) */
+  .status-area {
+    flex: 3;
+    background-color: #090e21;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 25px; /* カード同士の間隔 */
+  }
+  .status-header {
+    font-size: 18px;
+    color: #94a3b8;
+    border-bottom: 1px solid #1e293b;
+    padding-bottom: 8px;
+  }
+  .mode-badge {
+    font-size: 26px;
+    font-weight: 900;
+    text-align: center;
+    padding: 14px;
+    border-radius: 10px;
+    background: rgba(0, 240, 255, 0.12);
+    border: 2px solid #00f0ff;
+    color: #00f0ff;
+    text-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+    margin-bottom: 10px;
+  }
+  .metric-card {
+    background: #111833;
+    border-radius: 10px;
+    padding: 20px; /* 余白を少し広げて視認性向上 */
+    border-left: 5px solid #00f0ff;
+  }
+  .metric-label {
+    font-size: 15px;
+    color: #94a3b8;
+  }
+  .metric-value {
+    font-size: 38px; /* カード削減分、数値を少し大きく */
+    font-weight: 800;
+    margin-top: 6px;
+  }
+  .metric-sub {
+    font-size: 14px;
+    margin-top: 6px;
+    color: #38bdf8;
+  }
+
+  /* ③ デモコントロール領域（下部） */
+  .control-bar {
+    height: 120px;
+    background-color: #03050c;
+    border-top: 1px solid #1e293b;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    padding: 10px 20px;
+  }
+  .control-row-top {
+    display: flex;
+    width: 100%;
+    gap: 12px;
+    align-items: center;
+  }
+  .control-row-bottom {
+    display: flex;
+    width: 100%;
+    gap: 24px;
+    align-items: center;
+    background: #090e21;
+    padding: 6px 16px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+  }
+  .preset-group {
+    display: flex;
+    gap: 10px;
+    flex: 1;
+  }
+  .btn {
+    padding: 10px 16px;
+    border: 1px solid #334155;
+    background: #111827;
+    color: #e2e8f0;
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn.active-good {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: #10b981;
+    color: #34d399;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+  }
+  .btn.active-warn {
+    background: rgba(245, 158, 11, 0.2);
+    border-color: #f59e0b;
+    color: #fbbf24;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+  }
+  .btn.active-bad {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
+    color: #f87171;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+  }
+  .btn-reset {
+    background: #1e293b;
+  }
+  .btn-toggle {
+    background: #0f172a;
+    border-color: #00f0ff;
+    color: #00f0ff;
+    min-width: 100px;
+  }
+  .btn-toggle.paused {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: white;
+  }
+
+  /* スライダーレイアウト */
+  .slider-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+  }
+  .slider-label {
+    font-size: 13px;
+    font-weight: bold;
+    color: #94a3b8;
+    min-width: 110px;
+  }
+  .slider-input {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: #1e293b;
+    outline: none;
+    accent-color: #00f0ff;
+  }
+  .slider-val {
+    font-size: 14px;
+    font-weight: bold;
+    color: #e2e8f0;
+    min-width: 60px;
+    text-align: right;
+  }
+
+  /* Smartphone portrait optimization */
+  @media (orientation: portrait), (max-width: 700px) {
+    body { height: 100dvh; min-height: 100dvh; overflow: hidden; }
+    .main-container { flex-direction: column; min-height: 0; }
+    .play-area { flex: 1 1 auto; min-height: 0; border-right: 0; border-bottom: 1px solid #1e293b; padding: 34px 8px 6px; }
+    canvas { max-width: calc(100vw - 16px); max-height: 100%; border-radius: 8px; }
+    .score-overlay { top: 8px; left: 10px; font-size: 15px; letter-spacing: 0; }
+    .lag-warning { top: 30px; left: 10px; right: 10px; padding: 4px 7px; font-size: 11px; text-align: center; }
+    .status-area { flex: 0 0 auto; padding: 6px 8px; gap: 5px; display: grid; grid-template-columns: 1fr 1fr; }
+    .status-header { display: none; }
+    .mode-badge { grid-column: 1 / -1; font-size: 14px; padding: 4px; margin: 0; border-width: 1px; }
+    .metric-card { padding: 5px 8px; border-radius: 7px; border-left-width: 3px; }
+    .metric-label { font-size: 10px; } .metric-value { font-size: 21px; margin-top: 0; } .metric-value small { font-size: 11px; } .metric-sub { display: none; }
+    .control-bar { height: auto; flex: 0 0 auto; padding: 5px 8px max(7px, env(safe-area-inset-bottom)); gap: 5px; }
+    .control-row-top { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+    .preset-group { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+    .btn { min-height: 36px; padding: 4px 3px; font-size: 10px; line-height: 1.15; }
+    .btn-toggle, .btn-reset { min-width: 0; font-size: 11px; } .btn-toggle { grid-column: 1 / 3; } .btn-reset { grid-column: 3; }
+    .control-row-bottom { flex-direction: column; gap: 4px; padding: 5px 8px; }
+    .slider-container { width: 100%; gap: 6px; } .slider-label { min-width: 75px; font-size: 10px; }
+    .slider-input { min-width: 0; height: 18px; } .slider-val { min-width: 48px; font-size: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="main-container">
+  <!-- ① プレイ領域 (70%) -->
+  <div class="play-area" id="playArea">
+    <div class="score-overlay">
+      相手側 <span id="aiScore">0</span> VS <span id="playerScore">0</span> 自分側
+    </div>
+    <div class="lag-warning" id="lagWarning">⚠ 高遅延・パケットロス発生中</div>
+    <canvas id="gameCanvas"></canvas>
+  </div>
+
+  <!-- ② ステータス表示領域 (30%) - 帯域幅を削除 -->
+  <div class="status-area">
+    <div class="status-header">NETWORK QUALITY MONITOR</div>
+    <div id="modeBadge" class="mode-badge">通信良好モード</div>
+
+    <div class="metric-card" id="cardLatency">
+      <div class="metric-label">遅延 (Latency / RTT)</div>
+      <div class="metric-value"><span id="valLatency">10</span> <small>ms</small></div>
+      <div class="metric-sub" id="subLatency">● 操作に即座に追従できるかを影響する</div>
+    </div>
+
+    <div class="metric-card" id="cardLoss">
+      <div class="metric-label">パケットロス / ジッター</div>
+      <div class="metric-value"><span id="valLoss">0.0</span> <small>%</small></div>
+      <div class="metric-sub" id="subLoss">● ボールの動作が滑らかに行えるかを影響する</div>
+    </div>
+  </div>
+</div>
+
+<!-- ③ デモ用コントロールパネル -->
+<div class="control-bar">
+  <!-- 上段：モード選択・一時停止・リセット -->
+  <div class="control-row-top">
+    <div class="preset-group">
+      <button class="btn active-good" id="btn5g" onclick="setMode('5g')">
+        ⚡ 通信品質良好
+      </button>
+      <button class="btn" id="btn4g" onclick="setMode('4g')">
+        🐢 遅延発生
+      </button>
+      <button class="btn" id="btnLoss" onclick="setMode('loss')">
+        💥 通信品質が悪い（パケロス・高遅延）
+      </button>
+    </div>
+    <button class="btn btn-toggle" id="btnToggle" onclick="togglePause()">⏸ 一時停止</button>
+    <button class="btn btn-reset" onclick="resetScore()">スコア初期化</button>
+  </div>
+
+  <!-- 下段：カスタムパラメータチューナー -->
+  <div class="control-row-bottom">
+    <div class="slider-container">
+      <span class="slider-label">遅延 (Latency)</span>
+      <input type="range" id="slideLatency" class="slider-input" min="10" max="1000" step="10" value="10" oninput="onSliderChange()">
+      <span class="slider-val"><span id="lblLatency">10</span> ms</span>
+    </div>
+    <div class="slider-container">
+      <span class="slider-label">パケットロス</span>
+      <input type="range" id="slideLoss" class="slider-input" min="0" max="50" step="1" value="0" oninput="onSliderChange()">
+      <span class="slider-val"><span id="lblLoss">0.0</span> %</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const playArea = document.getElementById('playArea');
+
+function resizeCanvas() {
+  const portrait = window.matchMedia('(orientation: portrait)').matches || window.innerWidth <= 700;
+  const pad = portrait ? 16 : 40;
+  const w = Math.max(240, playArea.clientWidth - pad);
+  const h = Math.max(220, playArea.clientHeight - (portrait ? 42 : 40));
+  canvas.width = portrait ? w : Math.min(w, 850);
+  canvas.height = portrait ? h : Math.min(h, 520);
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// グローバルステート
+let isPaused = false;
+
+const presets = {
+  '5g':   { latencyMs: 10,  packetLoss: 0.00, jitterMs: 2,   themeColor: '#00f0ff' },
+  '4g':   { latencyMs: 250, packetLoss: 0.00, jitterMs: 40,  themeColor: '#f59e0b' },
+  'loss': { latencyMs: 450, packetLoss: 0.15, jitterMs: 100, themeColor: '#ef4444' }
+};
+
+let netConfig = JSON.parse(JSON.stringify(presets['5g']));
+netConfig.mode = '5g';
+
+// ゲームオブジェクト
+let playerScore = 0;
+let aiScore = 0;
+const paddleRadius = 28;
+const puckRadius = 16;
+
+let player = { x: canvas.width * 0.8, y: canvas.height / 2, targetX: canvas.width * 0.8, targetY: canvas.height / 2 };
+let rawInput = { x: canvas.width * 0.8, y: canvas.height / 2 };
+let ai = { x: canvas.width * 0.2, y: canvas.height / 2 };
+let puck = { x: canvas.width / 2, y: canvas.height / 2, vx: 7, vy: 5, displayX: canvas.width / 2, displayY: canvas.height / 2 };
+
+let inputQueue = [];
+
+// 得点時ポップアップテキスト
+let floatTexts = [];
+
+function spawnFloatText(text, x, y, color) {
+  floatTexts.push({
+    text: text,
+    x: x,
+    y: y,
+    vy: -1.2,
+    alpha: 1.0,
+    life: 80,
+    color: color
+  });
+}
+
+// 操作系
+function handlePointer(clientX, clientY) {
+  if (isPaused) return;
+  const rect = canvas.getBoundingClientRect();
+  let x = clientX - rect.left;
+  let y = clientY - rect.top;
+  x = Math.max(canvas.width / 2 + paddleRadius, Math.min(canvas.width - paddleRadius, x));
+  y = Math.max(paddleRadius, Math.min(canvas.height - paddleRadius, y));
+  rawInput.x = x;
+  rawInput.y = y;
+
+  if (Math.random() >= netConfig.packetLoss) {
+    const jitter = (Math.random() * 2 - 1) * netConfig.jitterMs;
+    const applyTime = performance.now() + Math.max(0, netConfig.latencyMs + jitter);
+    inputQueue.push({ x, y, applyTime });
+  }
+}
+
+canvas.addEventListener('mousemove', e => handlePointer(e.clientX, e.clientY));
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  handlePointer(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  handlePointer(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+
+// モード切り替え
+function setMode(mode) {
+  netConfig.mode = mode;
+  const config = presets[mode];
+  netConfig.latencyMs = config.latencyMs;
+  netConfig.packetLoss = config.packetLoss;
+  netConfig.jitterMs = config.jitterMs;
+  netConfig.themeColor = config.themeColor;
+
+  document.getElementById('slideLatency').value = netConfig.latencyMs;
+  document.getElementById('slideLoss').value = Math.round(netConfig.packetLoss * 100);
+
+  updateUIElements();
+}
+
+// スライダー調整
+function onSliderChange() {
+  netConfig.mode = 'custom';
+  netConfig.latencyMs = parseInt(document.getElementById('slideLatency').value);
+  netConfig.packetLoss = parseFloat(document.getElementById('slideLoss').value) / 100;
+  
+  netConfig.jitterMs = Math.round(netConfig.latencyMs * 0.2); 
+
+  if (netConfig.latencyMs < 100 && netConfig.packetLoss < 0.05) {
+    netConfig.themeColor = '#00f0ff';
+  } else if (netConfig.latencyMs < 300 && netConfig.packetLoss < 0.10) {
+    netConfig.themeColor = '#f59e0b';
+  } else {
+    netConfig.themeColor = '#ef4444';
+  }
+
+  updateUIElements();
+}
+
+function updateUIElements() {
+  document.querySelectorAll('.preset-group .btn').forEach(b => b.className = 'btn');
+  const badge = document.getElementById('modeBadge');
+  const warn = document.getElementById('lagWarning');
+
+  document.getElementById('lblLatency').textContent = netConfig.latencyMs;
+  document.getElementById('lblLoss').textContent = (netConfig.packetLoss * 100).toFixed(1);
+
+  if (netConfig.mode === '5g') {
+    document.getElementById('btn5g').classList.add('active-good');
+    badge.textContent = '品質良好モード';
+    badge.style.color = '#00f0ff';
+    badge.style.borderColor = '#00f0ff';
+    warn.style.display = 'none';
+  } else if (netConfig.mode === '4g') {
+    document.getElementById('btn4g').classList.add('active-warn');
+    badge.textContent = '遅延発生モード';
+    badge.style.color = '#fbbf24';
+    badge.style.borderColor = '#f59e0b';
+    warn.style.display = 'block';
+    warn.style.background = 'rgba(245, 158, 11, 0.25)';
+    warn.style.color = '#fbbf24';
+    warn.textContent = '⚠ 遅延発生中：操作が遅れて反映される';
+  } else if (netConfig.mode === 'loss') {
+    document.getElementById('btnLoss').classList.add('active-bad');
+    badge.textContent = '悪環境モード';
+    badge.style.color = '#f87171';
+    badge.style.borderColor = '#ef4444';
+    warn.style.display = 'block';
+    warn.style.background = 'rgba(239, 68, 68, 0.3)';
+    warn.style.color = '#f87171';
+    warn.textContent = '💥 悪環境：パケットロスによりボールの動作がガタガタする';
+  } else {
+    badge.textContent = '通信品質';
+    badge.style.color = netConfig.themeColor;
+    badge.style.borderColor = netConfig.themeColor;
+    if (netConfig.latencyMs > 150 || netConfig.packetLoss > 0.05) {
+      warn.style.display = 'block';
+      warn.style.background = 'rgba(255,255,255,0.1)';
+      warn.style.color = netConfig.themeColor;
+      warn.textContent = `⚡ 自由調整中: 遅延 ${netConfig.latencyMs}ms / ロス ${(netConfig.packetLoss*100).toFixed(1)}%`;
+    } else {
+      warn.style.display = 'none';
+    }
+  }
+
+  document.querySelectorAll('.metric-card').forEach(c => c.style.borderLeftColor = netConfig.themeColor);
+  updateDashboardUI();
+}
+
+function updateDashboardUI() {
+  const jitterOffset = Math.round((Math.random() * 2 - 1) * (netConfig.jitterMs * 0.3));
+  document.getElementById('valLatency').textContent = Math.max(1, netConfig.latencyMs + (isPaused ? 0 : jitterOffset));
+  document.getElementById('valLoss').textContent = (netConfig.packetLoss * 100).toFixed(1);
+}
+
+setInterval(() => {
+  if (!isPaused) updateDashboardUI();
+}, 800);
+
+function togglePause() {
+  isPaused = !isPaused;
+  const btn = document.getElementById('btnToggle');
+  if (isPaused) {
+    btn.textContent = '▶ 再開';
+    btn.className = 'btn btn-toggle paused';
+  } else {
+    btn.textContent = '⏸ 一時停止';
+    btn.className = 'btn btn-toggle';
+  }
+}
+
+function resetScore() {
+  playerScore = 0;
+  aiScore = 0;
+  document.getElementById('playerScore').textContent = '0';
+  document.getElementById('aiScore').textContent = '0';
+  floatTexts = [];
+  resetPuck();
+}
+
+function resetPuck() {
+  puck.x = canvas.width / 2;
+  puck.y = canvas.height / 2;
+  puck.vx = (Math.random() > 0.5 ? 1 : -1) * 7;
+  puck.vy = (Math.random() * 2 - 1) * 6;
+}
+
+// メインループ更新
+function update() {
+  if (isPaused) return;
+
+  const now = performance.now();
+
+  for (let i = floatTexts.length - 1; i >= 0; i--) {
+    let t = floatTexts[i];
+    t.y += t.vy;
+    t.life--;
+    t.alpha = t.life / 80;
+    if (t.life <= 0) {
+      floatTexts.splice(i, 1);
+    }
+  }
+
+  while (inputQueue.length > 0 && inputQueue[0].applyTime <= now) {
+    const nextPos = inputQueue.shift();
+    player.targetX = nextPos.x;
+    player.targetY = nextPos.y;
+  }
+  player.x += (player.targetX - player.x) * 0.45;
+  player.y += (player.targetY - player.y) * 0.45;
+
+  const aiSpeed = 4.8;
+  if (puck.x < canvas.width / 2) {
+    if (ai.y < puck.y - 6) ai.y += aiSpeed;
+    if (ai.y > puck.y + 6) ai.y -= aiSpeed;
+  } else {
+    if (ai.y < canvas.height / 2 - 6) ai.y += aiSpeed * 0.6;
+    if (ai.y > canvas.height / 2 + 6) ai.y -= aiSpeed * 0.6;
+  }
+  ai.y = Math.max(paddleRadius, Math.min(canvas.height - paddleRadius, ai.y));
+
+  puck.x += puck.vx;
+  puck.y += puck.vy;
+
+  if (puck.y - puckRadius < 0 || puck.y + puckRadius > canvas.height) {
+    puck.vy *= -1;
+    puck.y = Math.max(puckRadius, Math.min(canvas.height - puckRadius, puck.y));
+  }
+
+  const goalTop = canvas.height * 0.25;
+  const goalBottom = canvas.height * 0.75;
+
+  if (puck.x - puckRadius < 0) {
+    if (puck.y > goalTop && puck.y < goalBottom) {
+      playerScore++;
+      document.getElementById('playerScore').textContent = playerScore;
+      spawnFloatText("✦ 自分側得点 ✦", canvas.width * 0.2, canvas.height / 2, "#00f0ff");
+      resetPuck();
+    } else {
+      puck.vx *= -1;
+      puck.x = puckRadius;
+    }
+  } else if (puck.x + puckRadius > canvas.width) {
+    if (puck.y > goalTop && puck.y < goalBottom) {
+      aiScore++;
+      document.getElementById('aiScore').textContent = aiScore;
+      spawnFloatText("✦ 相手側得点 ✦", canvas.width * 0.8, canvas.height / 2, "#ef4444");
+      resetPuck();
+    } else {
+      puck.vx *= -1;
+      puck.x = canvas.width - puckRadius;
+    }
+  }
+
+  checkPaddleCollision(player);
+  checkPaddleCollision(ai);
+
+  if (Math.random() > netConfig.packetLoss * 2.5) {
+    puck.displayX = puck.x;
+    puck.displayY = puck.y;
+  }
+}
+
+function checkPaddleCollision(paddle) {
+  const dx = puck.x - paddle.x;
+  const dy = puck.y - paddle.y;
+  const dist = Math.hypot(dx, dy);
+  const minDist = paddleRadius + puckRadius;
+
+  if (dist < minDist && dist > 0) {
+    const angle = Math.atan2(dy, dx);
+    const speed = Math.min(Math.hypot(puck.vx, puck.vy) * 1.05, 13);
+    puck.vx = Math.cos(angle) * speed;
+    puck.vy = Math.sin(angle) * speed;
+    puck.x = paddle.x + Math.cos(angle) * (minDist + 2);
+    puck.y = paddle.y + Math.sin(angle) * (minDist + 2);
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.2)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 0);
+  ctx.lineTo(canvas.width / 2, canvas.height);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(canvas.width / 2, canvas.height / 2, 60, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const goalTop = canvas.height * 0.25;
+  const goalBottom = canvas.height * 0.75;
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = '#38bdf8';
+  ctx.beginPath();
+  ctx.moveTo(0, goalTop);
+  ctx.lineTo(0, goalBottom);
+  ctx.stroke();
+
+  ctx.strokeStyle = netConfig.themeColor;
+  ctx.beginPath();
+  ctx.moveTo(canvas.width, goalTop);
+  ctx.lineTo(canvas.width, goalBottom);
+  ctx.stroke();
+
+  if (netConfig.latencyMs > 50) {
+    ctx.beginPath();
+    ctx.arc(rawInput.x, rawInput.y, paddleRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  drawGlowingCircle(ai.x, ai.y, paddleRadius, '#38bdf8');
+  drawGlowingCircle(player.x, player.y, paddleRadius, netConfig.themeColor);
+  drawGlowingCircle(puck.displayX, puck.displayY, puckRadius, '#ffffff');
+
+  floatTexts.forEach(t => {
+    ctx.save();
+    ctx.globalAlpha = t.alpha;
+    ctx.font = "italic bold 18px 'Segoe UI', sans-serif";
+    ctx.fillStyle = t.color;
+    ctx.textAlign = "center";
+    ctx.shadowColor = t.color;
+    ctx.shadowBlur = 10;
+    ctx.fillText(t.text, t.x, t.y);
+    ctx.restore();
+  });
+}
+
+function drawGlowingCircle(x, y, r, color) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 18;
+  ctx.fill();
+  ctx.restore();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
